@@ -1,14 +1,12 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateReviewDto, ReviewType } from './dto/create-review.dto';
-import { ReviewResponseDto, PaginatedReviewsResponseDto } from './dto/review-response.dto';
-import { ReviewType as PrismaReviewType } from '@prisma/client';
+import { CreateReviewDto } from './dto/create-review.dto';
+import { ReviewResponseDto, ReviewListResponseDto } from './dto/review-response.dto';
+
+export enum ReviewType {
+  CAR_REVIEW = 'CAR_REVIEW',
+  RENTER_REVIEW = 'RENTER_REVIEW',
+}
 
 @Injectable()
 export class ReviewsService {
@@ -22,7 +20,10 @@ export class ReviewsService {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
-        vehicle: true,
+        vehicle: {
+          include: { owner: true },
+        },
+        renter: true,
       },
     });
 
@@ -30,112 +31,65 @@ export class ReviewsService {
       throw new NotFoundException('Booking not found');
     }
 
-    if (booking.status !== 'completed') {
-      throw new BadRequestException('Reviews can only be submitted for completed bookings');
+    if (booking.status !== 'COMPLETED') {
+      throw new BadRequestException('Reviews can only be left for completed bookings');
     }
 
-    const prismaReviewType = dto.type === ReviewType.VEHICLE_REVIEW 
-      ? PrismaReviewType.vehicle_review 
-      : PrismaReviewType.renter_review;
+    const isRenter = booking.renterId === userId;
+    const isOwner = booking.vehicle.ownerId === userId;
 
-    if (dto.type === ReviewType.VEHICLE_REVIEW) {
-      if (booking.renterId !== userId) {
-        throw new ForbiddenException('Only the renter can leave a vehicle review');
-      }
-    } else if (dto.type === ReviewType.RENTER_REVIEW) {
-      if (booking.vehicle.ownerId !== userId) {
-        throw new ForbiddenException('Only the vehicle owner can leave a renter review');
-      }
+    if (!isRenter && !isOwner) {
+      throw new ForbiddenException('You are not authorized to review this booking');
     }
 
-    const existingReview = await this.prisma.review.findUnique({
+    const reviewType = isRenter ? ReviewType.CAR_REVIEW : ReviewType.RENTER_REVIEW;
+
+    const existingReview = await this.prisma.review.findFirst({
       where: {
-        bookingId_type: {
-          bookingId,
-          type: prismaReviewType,
-        },
+        bookingId,
+        reviewType,
       },
     });
 
     if (existingReview) {
-      throw new ConflictException(`A ${dto.type} already exists for this booking`);
+      throw new BadRequestException(
+        `You have already left a ${isRenter ? 'car' : 'renter'} review for this booking`,
+      );
     }
 
-    const review = await this.prisma.$transaction(async (tx) => {
-      const reviewData: any = {
-        bookingId,
-        authorId: userId,
-        type: prismaReviewType,
-        rating: dto.rating,
-        comment: dto.comment,
-      };
+    const reviewData: any = {
+      booking: { connect: { id: bookingId } },
+      reviewer: { connect: { id: userId } },
+      reviewType,
+      rating: dto.rating,
+      comment: dto.comment,
+    };
 
-      if (dto.type === ReviewType.VEHICLE_REVIEW) {
-        reviewData.vehicleId = booking.vehicleId;
-      } else {
-        reviewData.subjectId = booking.renterId;
-      }
+    if (isRenter) {
+      reviewData.vehicle = { connect: { id: booking.vehicleId } };
+    } else {
+      reviewData.reviewee = { connect: { id: booking.renterId } };
+    }
 
-      const createdReview = await tx.review.create({
-        data: reviewData,
-        include: {
-          author: {
-            select: {
-              id: true,
-              fullName: true,
-              avatarUrl: true,
-            },
-          },
+    const review = await this.prisma.review.create({
+      data: reviewData,
+      include: {
+        reviewer: {
+          select: { id: true, firstName: true, lastName: true },
         },
-      });
-
-      if (dto.type === ReviewType.VEHICLE_REVIEW) {
-        const vehicleReviews = await tx.review.aggregate({
-          where: {
-            vehicleId: booking.vehicleId,
-            type: PrismaReviewType.vehicle_review,
-          },
-          _avg: { rating: true },
-          _count: { id: true },
-        });
-
-        await tx.vehicle.update({
-          where: { id: booking.vehicleId },
-          data: {
-            averageRating: vehicleReviews._avg.rating || 0,
-            totalReviews: vehicleReviews._count.id,
-          },
-        });
-      } else {
-        const renterReviews = await tx.review.aggregate({
-          where: {
-            subjectId: booking.renterId,
-            type: PrismaReviewType.renter_review,
-          },
-          _avg: { rating: true },
-          _count: { id: true },
-        });
-
-        await tx.user.update({
-          where: { id: booking.renterId },
-          data: {
-            averageRating: renterReviews._avg.rating || 0,
-            totalReviews: renterReviews._count.id,
-          },
-        });
-      }
-
-      return createdReview;
+      },
     });
+
+    if (isRenter) {
+      await this.updateVehicleAverageRating(booking.vehicleId);
+    } else {
+      await this.updateUserAverageRating(booking.renterId);
+    }
 
     return this.mapToResponseDto(review);
   }
 
-  async getVehicleReviews(
-    vehicleId: string,
-    page: number = 1,
-    limit: number = 10,
-  ): Promise<PaginatedReviewsResponseDto> {
+  async getVehicleReviews(vehicleId: string): Promise<ReviewListResponseDto> {
     const vehicle = await this.prisma.vehicle.findUnique({
       where: { id: vehicleId },
     });
@@ -144,51 +98,27 @@ export class ReviewsService {
       throw new NotFoundException('Vehicle not found');
     }
 
-    const skip = (page - 1) * limit;
-
-    const [reviews, total] = await Promise.all([
-      this.prisma.review.findMany({
-        where: {
-          vehicleId,
-          type: PrismaReviewType.vehicle_review,
+    const reviews = await this.prisma.review.findMany({
+      where: {
+        vehicleId,
+        reviewType: ReviewType.CAR_REVIEW,
+      },
+      include: {
+        reviewer: {
+          select: { id: true, firstName: true, lastName: true },
         },
-        include: {
-          author: {
-            select: {
-              id: true,
-              fullName: true,
-              avatarUrl: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.review.count({
-        where: {
-          vehicleId,
-          type: PrismaReviewType.vehicle_review,
-        },
-      }),
-    ]);
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
     return {
-      data: reviews.map((r) => this.mapToResponseDto(r)),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      reviews: reviews.map((r) => this.mapToResponseDto(r)),
+      averageRating: vehicle.averageRating || 0,
+      totalCount: reviews.length,
     };
   }
 
-  async getUserReviews(
-    userId: string,
-    page: number = 1,
-    limit: number = 10,
-  ): Promise<PaginatedReviewsResponseDto> {
+  async getUserReviews(userId: string): Promise<ReviewListResponseDto> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
@@ -197,61 +127,73 @@ export class ReviewsService {
       throw new NotFoundException('User not found');
     }
 
-    const skip = (page - 1) * limit;
-
-    const [reviews, total] = await Promise.all([
-      this.prisma.review.findMany({
-        where: {
-          subjectId: userId,
-          type: PrismaReviewType.renter_review,
+    const reviews = await this.prisma.review.findMany({
+      where: {
+        revieweeId: userId,
+        reviewType: ReviewType.RENTER_REVIEW,
+      },
+      include: {
+        reviewer: {
+          select: { id: true, firstName: true, lastName: true },
         },
-        include: {
-          author: {
-            select: {
-              id: true,
-              fullName: true,
-              avatarUrl: true,
-            },
-          },
-        },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.review.count({
-        where: {
-          subjectId: userId,
-          type: PrismaReviewType.renter_review,
-        },
-      }),
-    ]);
+      },
+      orderBy: { createdAt: 'desc' },
+    });
 
     return {
-      data: reviews.map((r) => this.mapToResponseDto(r)),
-      meta: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      reviews: reviews.map((r) => this.mapToResponseDto(r)),
+      averageRating: user.averageRating || 0,
+      totalCount: reviews.length,
     };
+  }
+
+  private async updateVehicleAverageRating(vehicleId: string): Promise<void> {
+    const result = await this.prisma.review.aggregate({
+      where: {
+        vehicleId,
+        reviewType: ReviewType.CAR_REVIEW,
+      },
+      _avg: { rating: true },
+    });
+
+    const averageRating = result._avg.rating || 0;
+
+    await this.prisma.vehicle.update({
+      where: { id: vehicleId },
+      data: { averageRating: Math.round(averageRating * 100) / 100 },
+    });
+  }
+
+  private async updateUserAverageRating(userId: string): Promise<void> {
+    const result = await this.prisma.review.aggregate({
+      where: {
+        revieweeId: userId,
+        reviewType: ReviewType.RENTER_REVIEW,
+      },
+      _avg: { rating: true },
+    });
+
+    const averageRating = result._avg.rating || 0;
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { averageRating: Math.round(averageRating * 100) / 100 },
+    });
   }
 
   private mapToResponseDto(review: any): ReviewResponseDto {
     return {
       id: review.id,
       bookingId: review.bookingId,
-      type: review.type === PrismaReviewType.vehicle_review 
-        ? ReviewType.VEHICLE_REVIEW 
-        : ReviewType.RENTER_REVIEW,
+      reviewerId: review.reviewerId,
+      revieweeId: review.revieweeId,
+      vehicleId: review.vehicleId,
+      reviewType: review.reviewType,
       rating: review.rating,
       comment: review.comment,
-      author: {
-        id: review.author.id,
-        fullName: review.author.fullName,
-        avatarUrl: review.author.avatarUrl,
-      },
       createdAt: review.createdAt,
+      updatedAt: review.updatedAt,
+      reviewer: review.reviewer,
     };
   }
 }

@@ -7,23 +7,42 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  RENTER
+  OWNER
+  BOTH
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ReviewType {
+  CAR_REVIEW
+  RENTER_REVIEW
+}
+
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
-  passwordHash  String
-  fullName      String
-  phoneNumber   String?
-  avatarUrl     String?
-  isVerified    Boolean   @default(false)
+  password      String
+  firstName     String
+  lastName      String
+  phone         String?
+  role          Role      @default(RENTER)
   averageRating Float?    @default(0)
-  totalReviews  Int       @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   vehicles        Vehicle[]
-  bookingsAsRenter Booking[] @relation("RenterBookings")
-  reviewsGiven    Review[]  @relation("ReviewAuthor")
-  reviewsReceived Review[]  @relation("ReviewSubject")
+  bookings        Booking[]       @relation("RenterBookings")
+  reviewsWritten  Review[]        @relation("ReviewsWritten")
+  reviewsReceived Review[]        @relation("ReviewsReceived")
 }
 
 model Vehicle {
@@ -32,27 +51,19 @@ model Vehicle {
   make          String
   model         String
   year          Int
-  licensePlate  String
-  color         String?
-  dailyRate     Decimal  @db.Decimal(10, 2)
+  licensePlate  String   @unique
+  dailyRate     Float
   location      String
+  description   String?
+  images        String[]
   isAvailable   Boolean  @default(true)
   averageRating Float?   @default(0)
-  totalReviews  Int      @default(0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   owner    User      @relation(fields: [ownerId], references: [id])
   bookings Booking[]
-  reviews  Review[]  @relation("VehicleReviews")
-}
-
-enum BookingStatus {
-  pending
-  confirmed
-  active
-  completed
-  cancelled
+  reviews  Review[]
 }
 
 model Booking {
@@ -61,8 +72,8 @@ model Booking {
   renterId   String
   startDate  DateTime
   endDate    DateTime
-  totalPrice Decimal       @db.Decimal(10, 2)
-  status     BookingStatus @default(pending)
+  totalPrice Float
+  status     BookingStatus @default(PENDING)
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
 
@@ -71,27 +82,24 @@ model Booking {
   reviews Review[]
 }
 
-enum ReviewType {
-  vehicle_review
-  renter_review
-}
-
 model Review {
-  id        String     @id @default(uuid())
-  bookingId String
-  authorId  String
-  type      ReviewType
-  rating    Int
-  comment   String
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id         String     @id @default(uuid())
+  bookingId  String
+  reviewerId String
+  revieweeId String?
+  vehicleId  String?
+  reviewType ReviewType
+  rating     Int
+  comment    String
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
-  booking   Booking  @relation(fields: [bookingId], references: [id])
-  author    User     @relation("ReviewAuthor", fields: [authorId], references: [id])
-  vehicleId String?
-  vehicle   Vehicle? @relation("VehicleReviews", fields: [vehicleId], references: [id])
-  subjectId String?
-  subject   User?    @relation("ReviewSubject", fields: [subjectId], references: [id])
+  booking  Booking  @relation(fields: [bookingId], references: [id])
+  reviewer User     @relation("ReviewsWritten", fields: [reviewerId], references: [id])
+  reviewee User?    @relation("ReviewsReceived", fields: [revieweeId], references: [id])
+  vehicle  Vehicle? @relation(fields: [vehicleId], references: [id])
 
-  @@unique([bookingId, type])
+  @@unique([bookingId, reviewType])
+  @@index([vehicleId])
+  @@index([revieweeId])
 }

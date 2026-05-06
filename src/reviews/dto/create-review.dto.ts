@@ -1,14 +1,6 @@
-import { IsEnum, IsInt, IsString, Max, Min, MinLength } from 'class-validator';
-
-export enum ReviewType {
-  VEHICLE_REVIEW = 'vehicle_review',
-  RENTER_REVIEW = 'renter_review',
-}
+import { IsInt, IsString, Min, Max, MinLength } from 'class-validator';
 
 export class CreateReviewDto {
-  @IsEnum(ReviewType)
-  type: ReviewType;
-
   @IsInt()
   @Min(1)
   @Max(5)

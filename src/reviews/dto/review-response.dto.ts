@@ -1,27 +1,23 @@
-import { ReviewType } from './create-review.dto';
-
-export class ReviewAuthorDto {
-  id: string;
-  fullName: string;
-  avatarUrl: string | null;
-}
-
 export class ReviewResponseDto {
   id: string;
   bookingId: string;
-  type: ReviewType;
+  reviewerId: string;
+  revieweeId: string | null;
+  vehicleId: string | null;
+  reviewType: string;
   rating: number;
   comment: string;
-  author: ReviewAuthorDto;
   createdAt: Date;
+  updatedAt: Date;
+  reviewer?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+  };
 }
 
-export class PaginatedReviewsResponseDto {
-  data: ReviewResponseDto[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
+export class ReviewListResponseDto {
+  reviews: ReviewResponseDto[];
+  averageRating: number;
+  totalCount: number;
 }
