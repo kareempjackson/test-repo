@@ -16,8 +16,10 @@ export class ReviewResponseDto {
   };
 }
 
-export class ReviewListResponseDto {
+export class PaginatedReviewsResponseDto {
   reviews: ReviewResponseDto[];
-  averageRating: number;
-  totalCount: number;
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
