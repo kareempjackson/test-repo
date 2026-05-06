@@ -8,77 +8,67 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  firstName    String   @map("first_name")
-  lastName     String   @map("last_name")
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  firstName    String?   @map("first_name")
+  lastName     String?   @map("last_name")
   phone        String?
-  avatarUrl    String?  @map("avatar_url")
-  isVerified   Boolean  @default(false) @map("is_verified")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  role         UserRole  @default(RENTER)
+  isVerified   Boolean   @default(false) @map("is_verified")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  vehicles                Vehicle[]
-  bookingsAsRenter        Booking[]                    @relation("RenterBookings")
-  messages                Message[]
-  notificationDebounces   MessageNotificationDebounce[]
+  vehicles     Vehicle[]
+  bookings     Booking[] @relation("RenterBookings")
+  messages     Message[]
 
   @@map("users")
 }
 
+enum UserRole {
+  RENTER
+  OWNER
+  BOTH
+  ADMIN
+}
+
 model Vehicle {
-  id           String   @id @default(cuid())
-  ownerId      String   @map("owner_id")
+  id           String        @id @default(uuid())
+  ownerId      String        @map("owner_id")
   make         String
   model        String
   year         Int
-  licensePlate String   @map("license_plate")
-  dailyRate    Decimal  @map("daily_rate") @db.Decimal(10, 2)
-  currency     String   @default("USD")
-  location     String
-  latitude     Decimal? @db.Decimal(10, 8)
-  longitude    Decimal? @db.Decimal(11, 8)
-  isAvailable  Boolean  @default(true) @map("is_available")
+  licensePlate String        @map("license_plate")
+  color        String?
   description  String?
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  dailyRate    Decimal       @map("daily_rate") @db.Decimal(10, 2)
+  location     String
+  isAvailable  Boolean       @default(true) @map("is_available")
+  images       String[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
 
-  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  images   VehicleImage[]
-  bookings Booking[]
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  bookings     Booking[]
 
   @@map("vehicles")
 }
 
-model VehicleImage {
-  id        String   @id @default(cuid())
-  vehicleId String   @map("vehicle_id")
-  url       String
-  isPrimary Boolean  @default(false) @map("is_primary")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-
-  @@map("vehicle_images")
-}
-
 model Booking {
-  id          String        @id @default(cuid())
+  id          String        @id @default(uuid())
   vehicleId   String        @map("vehicle_id")
   renterId    String        @map("renter_id")
-  startDate   DateTime      @map("start_date") @db.Date
-  endDate     DateTime      @map("end_date") @db.Date
+  startDate   DateTime      @map("start_date")
+  endDate     DateTime      @map("end_date")
   totalPrice  Decimal       @map("total_price") @db.Decimal(10, 2)
-  currency    String        @default("USD")
   status      BookingStatus @default(PENDING)
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
-  vehicle                 Vehicle                      @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-  renter                  User                         @relation("RenterBookings", fields: [renterId], references: [id], onDelete: Cascade)
-  messages                Message[]
-  notificationDebounces   MessageNotificationDebounce[]
+  vehicle     Vehicle       @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  renter      User          @relation("RenterBookings", fields: [renterId], references: [id], onDelete: Cascade)
+  messages    Message[]
 
   @@map("bookings")
 }
@@ -86,38 +76,25 @@ model Booking {
 enum BookingStatus {
   PENDING
   CONFIRMED
-  CANCELLED
+  ACTIVE
   COMPLETED
+  CANCELLED
 }
 
 model Message {
-  id        String    @id @default(cuid())
-  bookingId String    @map("booking_id")
-  senderId  String    @map("sender_id")
+  id        String   @id @default(uuid())
+  bookingId String   @map("booking_id")
+  senderId  String   @map("sender_id")
   content   String
-  readAt    DateTime? @map("read_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  sender  User    @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
 
   @@index([bookingId, createdAt(sort: Desc)])
   @@index([senderId])
+  @@index([bookingId, isRead])
   @@map("messages")
-}
-
-model MessageNotificationDebounce {
-  id             String   @id @default(cuid())
-  bookingId      String   @map("booking_id")
-  recipientId    String   @map("recipient_id")
-  lastNotifiedAt DateTime @default(now()) @map("last_notified_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-
-  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  recipient User    @relation(fields: [recipientId], references: [id], onDelete: Cascade)
-
-  @@unique([bookingId, recipientId])
-  @@map("message_notification_debounce")
 }

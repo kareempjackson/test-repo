@@ -1,47 +1,33 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-
-export interface MessageNotificationParams {
-  to: string;
-  recipientName: string;
-  senderName: string;
-  vehicleName: string;
-  bookingId: string;
-}
+import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class EmailService {
-  private readonly logger = new Logger(EmailService.name);
-  private readonly fromEmail: string;
-  private readonly appUrl: string;
-
-  constructor(private readonly configService: ConfigService) {
-    this.fromEmail = this.configService.get<string>('EMAIL_FROM', 'noreply@newstudio.com');
-    this.appUrl = this.configService.get<string>('APP_URL', 'http://localhost:3000');
+  /**
+   * Send a notification email when a new message is received.
+   * In production, integrate with an email provider (SendGrid, AWS SES, etc.)
+   */
+  async sendMessageNotification(
+    recipientEmail: string,
+    recipientName: string,
+    senderName: string,
+    bookingId: string,
+  ): Promise<void> {
+    // TODO: Integrate with actual email provider in production
+    console.log(
+      `[EMAIL] Sending message notification to ${recipientEmail}:`,
+      `"Hi ${recipientName}, you have a new message from ${senderName} regarding booking ${bookingId}"`
+    );
   }
 
-  async sendMessageNotification(params: MessageNotificationParams): Promise<void> {
-    const { to, recipientName, senderName, vehicleName, bookingId } = params;
-
-    const subject = `New message from ${senderName} about your ${vehicleName} booking`;
-    const body = `
-Hi ${recipientName},
-
-You have received a new message from ${senderName} regarding your booking for ${vehicleName}.
-
-View the conversation: ${this.appUrl}/bookings/${bookingId}/messages
-
-Best regards,
-New Studio Team
-    `.trim();
-
-    // In production, integrate with an email provider (SendGrid, AWS SES, etc.)
-    // For now, we log the email content
-    this.logger.log(`[EMAIL] To: ${to}`);
-    this.logger.log(`[EMAIL] Subject: ${subject}`);
-    this.logger.debug(`[EMAIL] Body: ${body}`);
-
-    // TODO: Implement actual email sending
-    // await this.sendGridService.send({ to, from: this.fromEmail, subject, text: body });
+  /**
+   * Generic email sending method for future use
+   */
+  async sendEmail(
+    to: string,
+    subject: string,
+    html: string,
+  ): Promise<void> {
+    // TODO: Integrate with actual email provider in production
+    console.log(`[EMAIL] Sending to ${to}: ${subject}`);
   }
 }

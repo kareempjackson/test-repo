@@ -2,42 +2,39 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-  Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
-import { CreateMessageDto } from './dto/create-message.dto';
-import { GetMessagesQueryDto } from './dto/get-messages.dto';
-import {
-  MessageResponseDto,
-  PaginatedMessagesResponseDto,
-} from './dto/message-response.dto';
-
-const NOTIFICATION_DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
 
 @Injectable()
 export class MessagesService {
-  private readonly logger = new Logger(MessagesService.name);
+  private lastNotificationTimes: Map<string, number> = new Map();
+  private readonly NOTIFICATION_DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
   ) {}
 
-  async createMessage(
-    bookingId: string,
-    senderId: string,
-    dto: CreateMessageDto,
-  ): Promise<MessageResponseDto> {
+  async createMessage(bookingId: string, senderId: string, content: string) {
+    if (!content || content.trim().length === 0) {
+      throw new BadRequestException('Message content cannot be empty');
+    }
+
+    if (content.length > 2000) {
+      throw new BadRequestException('Message content cannot exceed 2000 characters');
+    }
+
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
         vehicle: {
-          select: { ownerId: true, make: true, model: true },
+          include: {
+            owner: true,
+          },
         },
-        renter: {
-          select: { id: true, email: true, firstName: true },
-        },
+        renter: true,
       },
     });
 
@@ -49,47 +46,50 @@ export class MessagesService {
     const isOwner = booking.vehicle.ownerId === senderId;
 
     if (!isRenter && !isOwner) {
-      throw new ForbiddenException(
-        'Only the booking renter or vehicle owner can send messages',
-      );
+      throw new ForbiddenException('Only the booking renter or vehicle owner can send messages');
     }
 
     const message = await this.prisma.message.create({
       data: {
         bookingId,
         senderId,
-        content: dto.content,
+        content: content.trim(),
+        isRead: false,
       },
       include: {
         sender: {
           select: {
             id: true,
+            email: true,
             firstName: true,
             lastName: true,
-            avatarUrl: true,
           },
         },
       },
     });
 
-    // Determine recipient and send notification
-    const recipientId = isRenter ? booking.vehicle.ownerId : booking.renterId;
-    await this.sendNotificationIfNeeded(bookingId, recipientId, senderId, booking);
+    // Send email notification to recipient (debounced)
+    const recipient = isRenter ? booking.vehicle.owner : booking.renter;
+    await this.sendDebouncedEmailNotification(
+      bookingId,
+      recipient.email,
+      recipient.firstName || 'User',
+      message.sender.firstName || 'Someone',
+    );
 
-    return this.mapToResponse(message);
+    return message;
   }
 
   async getMessages(
     bookingId: string,
     userId: string,
-    query: GetMessagesQueryDto,
-  ): Promise<PaginatedMessagesResponseDto> {
+    page: number = 1,
+    limit: number = 20,
+  ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
       include: {
-        vehicle: {
-          select: { ownerId: true },
-        },
+        vehicle: true,
       },
     });
 
@@ -101,24 +101,33 @@ export class MessagesService {
     const isOwner = booking.vehicle.ownerId === userId;
 
     if (!isRenter && !isOwner) {
-      throw new ForbiddenException(
-        'Only the booking renter or vehicle owner can view messages',
-      );
+      throw new ForbiddenException('Only the booking renter or vehicle owner can view messages');
     }
 
-    const { page = 1, limit = 20 } = query;
+    // Mark messages as read for the current user
+    await this.prisma.message.updateMany({
+      where: {
+        bookingId,
+        senderId: { not: userId },
+        isRead: false,
+      },
+      data: {
+        isRead: true,
+      },
+    });
+
     const skip = (page - 1) * limit;
 
-    const [messages, total] = await Promise.all([
+    const [messages, totalCount] = await Promise.all([
       this.prisma.message.findMany({
         where: { bookingId },
         include: {
           sender: {
             select: {
               id: true,
+              email: true,
               firstName: true,
               lastName: true,
-              avatarUrl: true,
             },
           },
         },
@@ -129,36 +138,24 @@ export class MessagesService {
       this.prisma.message.count({ where: { bookingId } }),
     ]);
 
-    // Mark messages as read for the current user
-    await this.prisma.message.updateMany({
-      where: {
-        bookingId,
-        senderId: { not: userId },
-        readAt: null,
-      },
-      data: { readAt: new Date() },
-    });
-
     return {
-      data: messages.map(this.mapToResponse),
-      meta: {
-        total,
+      messages,
+      pagination: {
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        hasMore: skip + messages.length < totalCount,
       },
     };
   }
 
-  async getUnreadCountForBooking(
-    bookingId: string,
-    userId: string,
-  ): Promise<number> {
+  async getUnreadCountForBooking(bookingId: string, userId: string): Promise<number> {
     return this.prisma.message.count({
       where: {
         bookingId,
         senderId: { not: userId },
-        readAt: null,
+        isRead: false,
       },
     });
   }
@@ -172,128 +169,46 @@ export class MessagesService {
       where: {
         bookingId: { in: bookingIds },
         senderId: { not: userId },
-        readAt: null,
+        isRead: false,
       },
-      _count: { id: true },
+      _count: {
+        id: true,
+      },
     });
 
     const countMap = new Map<string, number>();
-    for (const count of counts) {
-      countMap.set(count.bookingId, count._count.id);
-    }
+    counts.forEach((item) => {
+      countMap.set(item.bookingId, item._count.id);
+    });
+
     return countMap;
   }
 
-  private async sendNotificationIfNeeded(
+  private async sendDebouncedEmailNotification(
     bookingId: string,
-    recipientId: string,
-    senderId: string,
-    booking: {
-      vehicle: { make: string; model: string };
-      renter: { firstName: string };
-    },
+    recipientEmail: string,
+    recipientName: string,
+    senderName: string,
   ): Promise<void> {
+    const cacheKey = `${bookingId}:${recipientEmail}`;
+    const lastNotification = this.lastNotificationTimes.get(cacheKey);
+    const now = Date.now();
+
+    if (lastNotification && now - lastNotification < this.NOTIFICATION_DEBOUNCE_MS) {
+      return; // Skip notification, still within debounce window
+    }
+
+    this.lastNotificationTimes.set(cacheKey, now);
+
     try {
-      const debounce = await this.prisma.messageNotificationDebounce.findUnique(
-        {
-          where: {
-            bookingId_recipientId: { bookingId, recipientId },
-          },
-        },
-      );
-
-      const now = new Date();
-      const shouldNotify =
-        !debounce ||
-        now.getTime() - debounce.lastNotifiedAt.getTime() >=
-          NOTIFICATION_DEBOUNCE_MS;
-
-      if (!shouldNotify) {
-        this.logger.debug(
-          `Skipping notification for booking ${bookingId} - debounced`,
-        );
-        return;
-      }
-
-      // Upsert debounce record
-      await this.prisma.messageNotificationDebounce.upsert({
-        where: {
-          bookingId_recipientId: { bookingId, recipientId },
-        },
-        create: {
-          bookingId,
-          recipientId,
-          lastNotifiedAt: now,
-        },
-        update: {
-          lastNotifiedAt: now,
-        },
-      });
-
-      // Get recipient email
-      const recipient = await this.prisma.user.findUnique({
-        where: { id: recipientId },
-        select: { email: true, firstName: true },
-      });
-
-      if (!recipient) {
-        return;
-      }
-
-      // Get sender name
-      const sender = await this.prisma.user.findUnique({
-        where: { id: senderId },
-        select: { firstName: true, lastName: true },
-      });
-
-      const senderName = sender
-        ? `${sender.firstName} ${sender.lastName}`
-        : 'Someone';
-
-      await this.emailService.sendMessageNotification({
-        to: recipient.email,
-        recipientName: recipient.firstName,
+      await this.emailService.sendMessageNotification(
+        recipientEmail,
+        recipientName,
         senderName,
-        vehicleName: `${booking.vehicle.make} ${booking.vehicle.model}`,
         bookingId,
-      });
-
-      this.logger.log(
-        `Sent message notification for booking ${bookingId} to ${recipient.email}`,
       );
     } catch (error) {
-      this.logger.error(
-        `Failed to send message notification: ${error.message}`,
-        error.stack,
-      );
+      console.error('Failed to send message notification email:', error);
     }
-  }
-
-  private mapToResponse(message: {
-    id: string;
-    bookingId: string;
-    content: string;
-    readAt: Date | null;
-    createdAt: Date;
-    sender: {
-      id: string;
-      firstName: string;
-      lastName: string;
-      avatarUrl: string | null;
-    };
-  }): MessageResponseDto {
-    return {
-      id: message.id,
-      bookingId: message.bookingId,
-      content: message.content,
-      sender: {
-        id: message.sender.id,
-        firstName: message.sender.firstName,
-        lastName: message.sender.lastName,
-        avatarUrl: message.sender.avatarUrl,
-      },
-      readAt: message.readAt,
-      createdAt: message.createdAt,
-    };
   }
 }

@@ -1,14 +1,8 @@
-import { IsString, MaxLength, MinLength } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsString, IsNotEmpty, MaxLength } from 'class-validator';
 
 export class CreateMessageDto {
-  @ApiProperty({
-    description: 'Message content',
-    example: 'Hi, I have a question about the vehicle.',
-    maxLength: 2000,
-  })
   @IsString()
-  @MinLength(1)
-  @MaxLength(2000)
+  @IsNotEmpty({ message: 'Message content is required' })
+  @MaxLength(2000, { message: 'Message content cannot exceed 2000 characters' })
   content: string;
 }
