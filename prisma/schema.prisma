@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                    String    @id @default(uuid())
+  email                 String    @unique
+  passwordHash          String
+  firstName             String
+  lastName              String
+  phone                 String?
+  stripeCustomerId      String?
+  stripeConnectAccountId String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  vehicles              Vehicle[]
+  bookingsAsRenter      Booking[] @relation("RenterBookings")
+
+  @@map("users")
+}
+
+model Vehicle {
+  id            String    @id @default(uuid())
+  ownerId       String
+  make          String
+  model         String
+  year          Int
+  licensePlate  String
+  dailyRate     Decimal   @db.Decimal(10, 2)
+  location      String
+  isAvailable   Boolean   @default(true)
+  imageUrls     String[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  owner         User      @relation(fields: [ownerId], references: [id])
+  bookings      Booking[]
+  blockedDates  BlockedDate[]
+
+  @@map("vehicles")
+}
+
+model Booking {
+  id              String        @id @default(uuid())
+  vehicleId       String
+  renterId        String
+  startDate       DateTime      @db.Date
+  endDate         DateTime      @db.Date
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  platformFee     Decimal       @db.Decimal(10, 2)
+  ownerPayout     Decimal       @db.Decimal(10, 2)
+  status          BookingStatus @default(PENDING)
+  stripePaymentIntentId String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  vehicle         Vehicle       @relation(fields: [vehicleId], references: [id])
+  renter          User          @relation("RenterBookings", fields: [renterId], references: [id])
+
+  @@map("bookings")
+}
+
+model BlockedDate {
+  id         String   @id @default(uuid())
+  vehicleId  String
+  date       DateTime @db.Date
+  bookingId  String?
+  createdAt  DateTime @default(now())
+
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id])
+
+  @@unique([vehicleId, date])
+  @@map("blocked_dates")
+}
+
+enum BookingStatus {
+  PENDING
+  AWAITING_PAYMENT
+  APPROVED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
