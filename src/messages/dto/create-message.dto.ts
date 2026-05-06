@@ -1,8 +1,8 @@
-import { IsString, IsNotEmpty, MaxLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateMessageDto {
   @IsString()
-  @IsNotEmpty({ message: 'Message content is required' })
+  @MinLength(1, { message: 'Message content cannot be empty' })
   @MaxLength(2000, { message: 'Message content cannot exceed 2000 characters' })
   content: string;
 }

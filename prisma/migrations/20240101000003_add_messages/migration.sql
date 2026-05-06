@@ -18,7 +18,7 @@ CREATE INDEX "messages_booking_id_created_at_idx" ON "messages"("booking_id", "c
 CREATE INDEX "messages_sender_id_idx" ON "messages"("sender_id");
 
 -- CreateIndex
-CREATE INDEX "messages_booking_id_is_read_idx" ON "messages"("booking_id", "is_read");
+CREATE INDEX "messages_is_read_idx" ON "messages"("is_read");
 
 -- AddForeignKey
 ALTER TABLE "messages" ADD CONSTRAINT "messages_booking_id_fkey" FOREIGN KEY ("booking_id") REFERENCES "bookings"("id") ON DELETE CASCADE ON UPDATE CASCADE;

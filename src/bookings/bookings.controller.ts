@@ -1,19 +1,19 @@
 import {
   Controller,
-  Get,
   Post,
+  Get,
   Patch,
   Body,
   Param,
   Query,
   UseGuards,
   Request,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
-import { BookingsService } from './bookings.service';
+import { BookingsService, CreateBookingDto } from './bookings.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { CreateBookingDto } from './dto/create-booking.dto';
-import { UpdateBookingStatusDto } from './dto/update-booking-status.dto';
-import { GetBookingsQueryDto } from './dto/get-bookings-query.dto';
+import { BookingStatus } from '@prisma/client';
 
 @Controller('bookings')
 @UseGuards(JwtAuthGuard)
@@ -21,63 +21,34 @@ export class BookingsController {
   constructor(private readonly bookingsService: BookingsService) {}
 
   @Post()
-  async createBooking(
-    @Body() createBookingDto: CreateBookingDto,
-    @Request() req: any,
-  ) {
-    const booking = await this.bookingsService.createBooking(
-      req.user.id,
-      createBookingDto,
-    );
-    return {
-      success: true,
-      data: booking,
-    };
+  @HttpCode(HttpStatus.CREATED)
+  async createBooking(@Body() dto: CreateBookingDto, @Request() req: any) {
+    const userId = req.user.sub || req.user.id;
+    return this.bookingsService.createBooking(userId, dto);
   }
 
   @Get()
   async getBookings(
-    @Query() query: GetBookingsQueryDto,
+    @Query('role') role: 'renter' | 'owner' = 'renter',
     @Request() req: any,
   ) {
-    const result = await this.bookingsService.getBookingsForUser(
-      req.user.id,
-      query.page || 1,
-      query.limit || 10,
-    );
-    return {
-      success: true,
-      data: result.bookings,
-      pagination: result.pagination,
-    };
+    const userId = req.user.sub || req.user.id;
+    return this.bookingsService.getBookingsForUser(userId, role);
   }
 
   @Get(':id')
-  async getBooking(
-    @Param('id') id: string,
-    @Request() req: any,
-  ) {
-    const booking = await this.bookingsService.getBookingById(id, req.user.id);
-    return {
-      success: true,
-      data: booking,
-    };
+  async getBooking(@Param('id') id: string, @Request() req: any) {
+    const userId = req.user.sub || req.user.id;
+    return this.bookingsService.getBookingById(id, userId);
   }
 
   @Patch(':id/status')
-  async updateBookingStatus(
+  async updateStatus(
     @Param('id') id: string,
-    @Body() updateStatusDto: UpdateBookingStatusDto,
+    @Body('status') status: BookingStatus,
     @Request() req: any,
   ) {
-    const booking = await this.bookingsService.updateBookingStatus(
-      id,
-      req.user.id,
-      updateStatusDto.status,
-    );
-    return {
-      success: true,
-      data: booking,
-    };
+    const userId = req.user.sub || req.user.id;
+    return this.bookingsService.updateBookingStatus(id, userId, status);
   }
 }

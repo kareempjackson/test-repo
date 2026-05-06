@@ -7,6 +7,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  RENTER
+  OWNER
+  BOTH
+  ADMIN
+}
+
+enum VehicleStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -26,32 +47,29 @@ model User {
   @@map("users")
 }
 
-enum UserRole {
-  RENTER
-  OWNER
-  BOTH
-  ADMIN
-}
-
 model Vehicle {
-  id           String        @id @default(uuid())
-  ownerId      String        @map("owner_id")
-  make         String
-  model        String
-  year         Int
-  licensePlate String        @map("license_plate")
-  color        String?
-  description  String?
-  dailyRate    Decimal       @map("daily_rate") @db.Decimal(10, 2)
-  location     String
-  isAvailable  Boolean       @default(true) @map("is_available")
-  images       String[]
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  id          String        @id @default(uuid())
+  ownerId     String        @map("owner_id")
+  make        String
+  model       String
+  year        Int
+  licensePlate String       @map("license_plate")
+  color       String?
+  description String?
+  dailyRate   Decimal       @map("daily_rate") @db.Decimal(10, 2)
+  location    String
+  island      String
+  status      VehicleStatus @default(ACTIVE)
+  imageUrls   String[]      @map("image_urls")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
 
-  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  bookings     Booking[]
+  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  bookings    Booking[]
 
+  @@index([ownerId])
+  @@index([island])
+  @@index([status])
   @@map("vehicles")
 }
 
@@ -70,15 +88,10 @@ model Booking {
   renter      User          @relation("RenterBookings", fields: [renterId], references: [id], onDelete: Cascade)
   messages    Message[]
 
+  @@index([vehicleId])
+  @@index([renterId])
+  @@index([status])
   @@map("bookings")
-}
-
-enum BookingStatus {
-  PENDING
-  CONFIRMED
-  ACTIVE
-  COMPLETED
-  CANCELLED
 }
 
 model Message {
@@ -95,6 +108,6 @@ model Message {
 
   @@index([bookingId, createdAt(sort: Desc)])
   @@index([senderId])
-  @@index([bookingId, isRead])
+  @@index([isRead])
   @@map("messages")
 }

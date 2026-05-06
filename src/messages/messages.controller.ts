@@ -7,13 +7,13 @@ import {
   Query,
   UseGuards,
   Request,
-  HttpStatus,
   HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { MessagesService } from './messages.service';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateMessageDto } from './dto/create-message.dto';
-import { GetMessagesQueryDto } from './dto/get-messages-query.dto';
+import { MessageQueryDto } from './dto/message-query.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('bookings/:bookingId/messages')
 @UseGuards(JwtAuthGuard)
@@ -24,36 +24,20 @@ export class MessagesController {
   @HttpCode(HttpStatus.CREATED)
   async createMessage(
     @Param('bookingId') bookingId: string,
-    @Body() createMessageDto: CreateMessageDto,
+    @Body() dto: CreateMessageDto,
     @Request() req: any,
   ) {
-    const message = await this.messagesService.createMessage(
-      bookingId,
-      req.user.id,
-      createMessageDto.content,
-    );
-    return {
-      success: true,
-      data: message,
-    };
+    const userId = req.user.sub || req.user.id;
+    return this.messagesService.createMessage(bookingId, userId, dto);
   }
 
   @Get()
   async getMessages(
     @Param('bookingId') bookingId: string,
-    @Query() query: GetMessagesQueryDto,
+    @Query() query: MessageQueryDto,
     @Request() req: any,
   ) {
-    const result = await this.messagesService.getMessages(
-      bookingId,
-      req.user.id,
-      query.page || 1,
-      query.limit || 20,
-    );
-    return {
-      success: true,
-      data: result.messages,
-      pagination: result.pagination,
-    };
+    const userId = req.user.sub || req.user.id;
+    return this.messagesService.getMessages(bookingId, userId, query);
   }
 }
