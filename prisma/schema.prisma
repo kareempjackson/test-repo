@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  renter
+  owner
+  both
+  admin
+}
+
+enum BookingStatus {
+  pending
+  approved
+  rejected
+  cancelled
+  completed
+}
+
+model User {
+  id                     String    @id @default(uuid())
+  email                  String    @unique
+  passwordHash           String    @map("password_hash")
+  firstName              String?   @map("first_name")
+  lastName               String?   @map("last_name")
+  phone                  String?
+  role                   UserRole  @default(renter)
+  isVerified             Boolean   @default(false) @map("is_verified")
+  stripeConnectAccountId String?   @map("stripe_connect_account_id")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  vehicles Vehicle[]
+  bookings Booking[] @relation("RenterBookings")
+
+  @@map("users")
+}
+
+model Vehicle {
+  id           String   @id @default(uuid())
+  ownerId      String   @map("owner_id")
+  make         String
+  model        String
+  year         Int
+  color        String?
+  licensePlate String?  @map("license_plate")
+  dailyRate    Float    @map("daily_rate")
+  description  String?
+  location     String?
+  isAvailable  Boolean  @default(true) @map("is_available")
+  imageUrls    String[] @map("image_urls")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  owner         User                  @relation(fields: [ownerId], references: [id])
+  bookings      Booking[]
+  availabilities VehicleAvailability[]
+
+  @@index([ownerId])
+  @@index([isAvailable])
+  @@map("vehicles")
+}
+
+model Booking {
+  id                    String        @id @default(uuid())
+  vehicleId             String        @map("vehicle_id")
+  renterId              String        @map("renter_id")
+  startDate             DateTime      @map("start_date")
+  endDate               DateTime      @map("end_date")
+  totalDays             Int           @map("total_days")
+  dailyRate             Float         @map("daily_rate")
+  totalAmount           Float         @map("total_amount")
+  platformFee           Float         @map("platform_fee")
+  ownerPayout           Float         @map("owner_payout")
+  status                BookingStatus @default(pending)
+  stripePaymentIntentId String?       @map("stripe_payment_intent_id")
+  paymentConfirmedAt    DateTime?     @map("payment_confirmed_at")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  updatedAt             DateTime      @updatedAt @map("updated_at")
+
+  vehicle       Vehicle               @relation(fields: [vehicleId], references: [id])
+  renter        User                  @relation("RenterBookings", fields: [renterId], references: [id])
+  availabilities VehicleAvailability[]
+
+  @@index([vehicleId])
+  @@index([renterId])
+  @@index([status])
+  @@map("bookings")
+}
+
+model VehicleAvailability {
+  id        String   @id @default(uuid())
+  vehicleId String   @map("vehicle_id")
+  startDate DateTime @map("start_date")
+  endDate   DateTime @map("end_date")
+  isBlocked Boolean  @default(true) @map("is_blocked")
+  bookingId String?  @map("booking_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vehicle Vehicle  @relation(fields: [vehicleId], references: [id])
+  booking Booking? @relation(fields: [bookingId], references: [id])
+
+  @@index([vehicleId])
+  @@index([startDate, endDate])
+  @@map("vehicle_availabilities")
+}
