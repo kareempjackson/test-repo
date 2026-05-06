@@ -1,0 +1,264 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserRole {
+  RENTER
+  OWNER
+  ADMIN
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum VehicleStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum TransmissionType {
+  AUTOMATIC
+  MANUAL
+}
+
+enum FuelType {
+  GASOLINE
+  DIESEL
+  ELECTRIC
+  HYBRID
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+enum ReviewType {
+  CAR
+  RENTER
+}
+
+enum DocumentType {
+  DRIVERS_LICENSE
+  NATIONAL_ID
+  PASSPORT
+  PROOF_OF_ADDRESS
+  VEHICLE_REGISTRATION
+  INSURANCE
+}
+
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// =============================================================================
+// MODELS
+// =============================================================================
+
+model User {
+  id                 String             @id @default(uuid()) @db.Uuid
+  email              String             @unique @db.VarChar(255)
+  passwordHash       String             @map("password_hash") @db.VarChar(255)
+  phone              String?            @db.VarChar(50)
+  firstName          String?            @map("first_name") @db.VarChar(100)
+  lastName           String?            @map("last_name") @db.VarChar(100)
+  role               UserRole           @default(RENTER)
+  verificationStatus VerificationStatus @default(UNVERIFIED) @map("verification_status")
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  vehicles              Vehicle[]
+  bookingsAsRenter      Booking[]              @relation("RenterBookings")
+  sentMessages          Message[]
+  reviewsGiven          Review[]               @relation("ReviewerReviews")
+  reviewsReceived       Review[]               @relation("RevieweeReviews")
+  verificationDocuments VerificationDocument[] @relation("UserDocuments")
+  reviewedDocuments     VerificationDocument[] @relation("ReviewerDocuments")
+
+  @@index([email])
+  @@index([role])
+  @@index([verificationStatus])
+  @@map("users")
+}
+
+model Vehicle {
+  id             String           @id @default(uuid()) @db.Uuid
+  ownerId        String           @map("owner_id") @db.Uuid
+  make           String           @db.VarChar(100)
+  model          String           @db.VarChar(100)
+  year           Int              @db.SmallInt
+  description    String?          @db.Text
+  dailyRateCents Int              @map("daily_rate_cents")
+  locationText   String           @map("location_text") @db.VarChar(500)
+  locationLat    Decimal?         @map("location_lat") @db.Decimal(10, 8)
+  locationLng    Decimal?         @map("location_lng") @db.Decimal(11, 8)
+  seats          Int              @default(5) @db.SmallInt
+  transmission   TransmissionType @default(AUTOMATIC)
+  fuelType       FuelType         @default(GASOLINE) @map("fuel_type")
+  status         VehicleStatus    @default(DRAFT)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  owner        User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  images       VehicleImage[]
+  availability Availability[]
+  bookings     Booking[]
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([make, model])
+  @@index([locationLat, locationLng])
+  @@index([dailyRateCents])
+  @@map("vehicles")
+}
+
+model VehicleImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  vehicleId String   @map("vehicle_id") @db.Uuid
+  url       String   @db.VarChar(1000)
+  position  Int      @default(0) @db.SmallInt
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([vehicleId, position])
+  @@map("vehicle_images")
+}
+
+model Availability {
+  id          String   @id @default(uuid()) @db.Uuid
+  vehicleId   String   @map("vehicle_id") @db.Uuid
+  date        DateTime @db.Date
+  isAvailable Boolean  @default(true) @map("is_available")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, date])
+  @@index([vehicleId])
+  @@index([vehicleId, date])
+  @@index([date, isAvailable])
+  @@map("availability")
+}
+
+model Booking {
+  id                    String        @id @default(uuid()) @db.Uuid
+  vehicleId             String        @map("vehicle_id") @db.Uuid
+  renterId              String        @map("renter_id") @db.Uuid
+  startDate             DateTime      @map("start_date") @db.Date
+  endDate               DateTime      @map("end_date") @db.Date
+  totalCents            Int           @map("total_cents")
+  platformFeeCents      Int           @map("platform_fee_cents")
+  status                BookingStatus @default(PENDING)
+  stripePaymentIntentId String?       @map("stripe_payment_intent_id") @db.VarChar(255)
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  vehicle  Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  renter   User      @relation("RenterBookings", fields: [renterId], references: [id], onDelete: Restrict)
+  messages Message[]
+  reviews  Review[]
+
+  @@index([vehicleId])
+  @@index([renterId])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@index([vehicleId, startDate, endDate])
+  @@index([stripePaymentIntentId])
+  @@map("bookings")
+}
+
+model Message {
+  id        String   @id @default(uuid()) @db.Uuid
+  bookingId String   @map("booking_id") @db.Uuid
+  senderId  String   @map("sender_id") @db.Uuid
+  content   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  // Relations
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  sender  User    @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@index([senderId])
+  @@index([bookingId, createdAt])
+  @@map("messages")
+}
+
+model Review {
+  id         String     @id @default(uuid()) @db.Uuid
+  bookingId  String     @map("booking_id") @db.Uuid
+  reviewerId String     @map("reviewer_id") @db.Uuid
+  revieweeId String     @map("reviewee_id") @db.Uuid
+  rating     Int        @db.SmallInt
+  comment    String?    @db.Text
+  type       ReviewType
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  booking  Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  reviewer User    @relation("ReviewerReviews", fields: [reviewerId], references: [id], onDelete: Restrict)
+  reviewee User    @relation("RevieweeReviews", fields: [revieweeId], references: [id], onDelete: Restrict)
+
+  @@unique([bookingId, reviewerId, type])
+  @@index([bookingId])
+  @@index([reviewerId])
+  @@index([revieweeId])
+  @@index([revieweeId, type])
+  @@index([rating])
+  @@map("reviews")
+}
+
+model VerificationDocument {
+  id           String         @id @default(uuid()) @db.Uuid
+  userId       String         @map("user_id") @db.Uuid
+  documentType DocumentType   @map("document_type")
+  fileUrl      String         @map("file_url") @db.VarChar(1000)
+  status       DocumentStatus @default(PENDING)
+  reviewedAt   DateTime?      @map("reviewed_at") @db.Timestamptz(6)
+  reviewedBy   String?        @map("reviewed_by") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // Relations
+  user     User  @relation("UserDocuments", fields: [userId], references: [id], onDelete: Cascade)
+  reviewer User? @relation("ReviewerDocuments", fields: [reviewedBy], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([userId, documentType])
+  @@index([status])
+  @@index([reviewedBy])
+  @@map("verification_documents")
+}
