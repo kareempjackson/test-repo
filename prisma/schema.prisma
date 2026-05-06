@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password_hash String
+  first_name    String
+  last_name     String
+  phone         String?
+  role          UserRole  @default(renter)
+  is_verified   Boolean   @default(false)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  vehicles      Vehicle[]
+  bookings      Booking[]
+  reviews       Review[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  renter
+  owner
+  both
+  admin
+}
+
+model Vehicle {
+  id            String    @id @default(uuid())
+  owner_id      String
+  make          String
+  model         String
+  year          Int
+  daily_rate    Decimal   @db.Decimal(10, 2)
+  transmission  String    // 'auto' or 'manual'
+  seats         Int
+  location_text String
+  latitude      Decimal?  @db.Decimal(10, 8)
+  longitude     Decimal?  @db.Decimal(11, 8)
+  description   String?
+  is_available  Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  owner         User      @relation(fields: [owner_id], references: [id], onDelete: Cascade)
+  images        VehicleImage[]
+  bookings      Booking[]
+  reviews       Review[]
+
+  @@index([owner_id])
+  @@index([is_available])
+  @@index([location_text])
+  @@index([daily_rate])
+  @@index([transmission])
+  @@index([seats])
+  @@map("vehicles")
+}
+
+model VehicleImage {
+  id          String   @id @default(uuid())
+  vehicle_id  String
+  image_url   String
+  is_primary  Boolean  @default(false)
+  created_at  DateTime @default(now())
+
+  vehicle     Vehicle  @relation(fields: [vehicle_id], references: [id], onDelete: Cascade)
+
+  @@index([vehicle_id])
+  @@index([is_primary])
+  @@map("vehicle_images")
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  vehicle_id  String
+  renter_id   String
+  start_date  DateTime
+  end_date    DateTime
+  total_price Decimal       @db.Decimal(10, 2)
+  status      BookingStatus @default(pending)
+  created_at  DateTime      @default(now())
+  updated_at  DateTime      @updatedAt
+
+  vehicle     Vehicle       @relation(fields: [vehicle_id], references: [id], onDelete: Cascade)
+  renter      User          @relation(fields: [renter_id], references: [id], onDelete: Cascade)
+
+  @@index([vehicle_id])
+  @@index([renter_id])
+  @@index([status])
+  @@index([start_date, end_date])
+  @@map("bookings")
+}
+
+enum BookingStatus {
+  pending
+  confirmed
+  cancelled
+  completed
+}
+
+model Review {
+  id          String   @id @default(uuid())
+  vehicle_id  String
+  reviewer_id String
+  rating      Int      // 1-5
+  comment     String?
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  vehicle     Vehicle  @relation(fields: [vehicle_id], references: [id], onDelete: Cascade)
+  reviewer    User     @relation(fields: [reviewer_id], references: [id], onDelete: Cascade)
+
+  @@index([vehicle_id])
+  @@index([reviewer_id])
+  @@map("reviews")
+}
