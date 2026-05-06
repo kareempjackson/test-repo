@@ -1,5 +1,5 @@
 import { IsOptional, IsDateString, IsString, IsNumber, IsEnum, Min, Max, IsInt } from 'class-validator';
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 
 export enum TransmissionType {
   AUTO = 'auto',
@@ -49,7 +49,7 @@ export class SearchVehiclesDto {
 
   @IsOptional()
   @IsEnum(SortBy)
-  sort_by?: SortBy = SortBy.NEWEST;
+  sort_by?: SortBy;
 
   @IsOptional()
   @Type(() => Number)
