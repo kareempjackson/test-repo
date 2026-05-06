@@ -1,87 +1,38 @@
-import { ApiProperty } from '@nestjs/swagger';
-
-export class VehicleOwnerDto {
-  @ApiProperty()
+export interface VehicleOwner {
   id: string;
-
-  @ApiProperty()
-  firstName: string;
-
-  @ApiProperty()
-  lastName: string;
-
-  @ApiProperty()
-  isVerified: boolean;
+  first_name: string;
+  last_name: string;
+  is_verified: boolean;
 }
 
-export class VehicleSearchItemDto {
-  @ApiProperty()
+export interface VehicleSearchResult {
   id: string;
-
-  @ApiProperty()
   make: string;
-
-  @ApiProperty()
   model: string;
-
-  @ApiProperty()
   year: number;
-
-  @ApiProperty()
-  dailyRate: number;
-
-  @ApiProperty()
-  currency: string;
-
-  @ApiProperty()
+  daily_rate: number;
   transmission: string;
-
-  @ApiProperty()
   seats: number;
-
-  @ApiProperty()
-  locationText: string;
-
-  @ApiProperty({ nullable: true })
-  primaryImageUrl: string | null;
-
-  @ApiProperty()
-  averageRating: number;
-
-  @ApiProperty()
-  totalReviews: number;
-
-  @ApiProperty()
-  owner: VehicleOwnerDto;
-
-  @ApiProperty()
-  createdAt: Date;
+  location_text: string;
+  latitude: number | null;
+  longitude: number | null;
+  primary_image_url: string | null;
+  average_rating: number | null;
+  review_count: number;
+  owner: VehicleOwner;
+  created_at: Date;
 }
 
-export class PaginationMetaDto {
-  @ApiProperty()
-  currentPage: number;
-
-  @ApiProperty()
-  itemsPerPage: number;
-
-  @ApiProperty()
-  totalItems: number;
-
-  @ApiProperty()
-  totalPages: number;
-
-  @ApiProperty()
-  hasNextPage: boolean;
-
-  @ApiProperty()
-  hasPreviousPage: boolean;
+export interface PaginationMeta {
+  current_page: number;
+  per_page: number;
+  total_items: number;
+  total_pages: number;
+  has_next_page: boolean;
+  has_previous_page: boolean;
 }
 
-export class VehicleSearchResponseDto {
-  @ApiProperty({ type: [VehicleSearchItemDto] })
-  data: VehicleSearchItemDto[];
-
-  @ApiProperty()
-  meta: PaginationMetaDto;
+export interface VehicleSearchResponse {
+  data: VehicleSearchResult[];
+  meta: PaginationMeta;
 }

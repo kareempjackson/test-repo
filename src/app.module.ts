@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
-import { redisStore } from 'cache-manager-redis-store';
+import { redisStore } from 'cache-manager-redis-yet';
 import { PrismaModule } from './prisma/prisma.module';
 import { VehiclesModule } from './vehicles/vehicles.module';
 
@@ -12,20 +12,17 @@ import { VehiclesModule } from './vehicles/vehicles.module';
     }),
     CacheModule.registerAsync({
       isGlobal: true,
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => {
-        const redisUrl = configService.get<string>('REDIS_URL');
-        if (redisUrl) {
-          return {
-            store: redisStore as any,
-            url: redisUrl,
-            ttl: 5 * 60 * 1000, // 5 minutes default TTL
-          };
-        }
-        // Fallback to in-memory cache for development
+      useFactory: async () => {
+        const store = await redisStore({
+          socket: {
+            host: process.env.REDIS_HOST || 'localhost',
+            port: parseInt(process.env.REDIS_PORT || '6379', 10),
+          },
+          password: process.env.REDIS_PASSWORD || undefined,
+        });
         return {
-          ttl: 5 * 60 * 1000,
+          store,
+          ttl: 5 * 60 * 1000, // 5 minutes default TTL
         };
       },
     }),
